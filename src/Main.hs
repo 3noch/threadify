@@ -43,11 +43,10 @@ main' :: CmdOptions -> IO ()
 main' (CmdOptions file table delim') = withConnection file run
   where
     run c = do
-      rowCnt    <- getRowCount table c
+      times     <- getTimes table c
       threadIds <- getThreadIds table c
       threads   <- getThread table c `mapM` threadIds
-      let ids = [[Just (x, ("", ""))] | x <- [0..rowCnt - 1]]
-      let rows = foldl' (joinSparseThreads Nothing) ids threads
+      let rows = foldl' (joinSparseThreads Nothing) ((:[]) <$> times) threads
       Tio.putStrLn $ renderHeader delim threadIds
       Tio.putStrLn $ renderCsv    delim rows
 
@@ -64,6 +63,18 @@ main = execParser opts >>= main'
 
 (<$$>) = fmap . fmap
 
+type ThreadEntry = Maybe (Int, (Text, Text))
+
+getTimes :: String -> Connection -> IO [ThreadEntry]
+getTimes table c = format <$$> query_ c q
+  where
+    q = fromString $ "SELECT id, timestamp FROM " <> table
+     <> " ORDER BY id"
+
+    format :: (Int, Text) -> ThreadEntry
+    format (idx, time) = Just (idx, (time, ""))
+
+
 
 getThreadIds :: String -> Connection -> IO [Text]
 getThreadIds table c = fromOnly <$$> query_ c q
@@ -73,17 +84,11 @@ getThreadIds table c = fromOnly <$$> query_ c q
      <>   " GROUP BY thread_id ORDER BY cnt DESC)"
 
 
-getRowCount :: String -> Connection -> IO Int
-getRowCount table c = head <$> fromOnly <$$> query_ c (fromString $ "SELECT COUNT(*) FROM " <> table)
-
-
-type ThreadEntry = Maybe (Int, (Text, Text))
-
 getThread :: String -> Connection -> Text -> IO [ThreadEntry]
-getThread table c threadId = rekey <$$> query c q [threadId]
+getThread table c threadId = format <$$> query c q [threadId]
   where
     q = fromString $ "SELECT id, func, message FROM " <> table <> " WHERE thread_id = ? ORDER BY id"
-    rekey (x, y, z) = Just (x, (y, z))
+    format (x, y, z) = Just (x, (y, z))
 
 
 joinSparseColumns :: ([a] -> a -> Bool) -> a -> [[a]] -> [a] -> [[a]]
@@ -102,7 +107,7 @@ joinSparseThreads = joinSparseColumns p
 
 
 renderIdx :: ThreadEntry -> Text
-renderIdx (Just (idx, _)) = T.pack (show idx)
+renderIdx (Just (_, (time, _))) = time
 
 renderCol :: ThreadEntry -> Text
 renderCol Nothing = ""
@@ -116,5 +121,4 @@ renderCsv delim rows = T.unlines $ renderRow <$> rows
     renderRow (c:cs) = T.intercalate delim $ renderIdx c : (renderCol <$> cs)
 
 renderHeader :: Text -> [Text] -> Text
-renderHeader delim thIds = T.intercalate delim $ "Line" : thIds
-
+renderHeader delim thIds = T.intercalate delim $ "Time" : thIds
