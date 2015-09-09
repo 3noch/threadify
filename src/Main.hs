@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad (mapM)
-import           Data.Maybe (fromJust)
 import           Data.List (foldl')
 import           Data.String (fromString)
 import           Data.Text (Text)
